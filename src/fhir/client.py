@@ -1,5 +1,5 @@
 from fhirclient import client
-from ..config.settings import Settings
+from config.settings import Settings
 
 
 class FHIRClient:
