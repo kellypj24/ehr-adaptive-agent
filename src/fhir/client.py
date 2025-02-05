@@ -1,14 +1,17 @@
 from fhirclient import client
 from ..config.settings import Settings
 
+
 class FHIRClient:
     def __init__(self):
         self.settings = Settings()
-        self.smart = client.FHIRClient(settings={
-            'app_id': 'ehr_adaptive_agent',
-            'api_base': self.settings.FHIR_SERVER_URL
-        })
-    
+        self.smart = client.FHIRClient(
+            settings={
+                "app_id": "ehr_adaptive_agent",
+                "api_base": self.settings.FHIR_SERVER_URL,
+            }
+        )
+
     def get_patient(self, patient_id: str):
         """Fetch a patient resource by ID"""
         try:
