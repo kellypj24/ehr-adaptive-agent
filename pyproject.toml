@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "ehr-adaptive-agent"
+version = "0.1.0"
+description = "Adaptive AI agent for FHIR data structure mapping"
+authors = ["Your Name <your.email@example.com>"]
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fhirclient = "^4.1.0"
+requests = "^2.31.0"
+pydantic = "^2.5.0"
+pytest = "^7.4.0"
+python-dotenv = "^1.0.0"
+pydantic-settings = "^2.7.1"
+
+[tool.poetry.dev-dependencies]
+black = "^23.3.0"
+isort = "^5.12.0"
+flake8 = "^6.0.0"
