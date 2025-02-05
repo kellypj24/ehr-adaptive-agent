@@ -10,11 +10,18 @@ python = "^3.9"
 fhirclient = "^4.1.0"
 requests = "^2.31.0"
 pydantic = "^2.5.0"
-pytest = "^7.4.0"
+pytest = "^8.2"
 python-dotenv = "^1.0.0"
 pydantic-settings = "^2.7.1"
+asyncio = "^3.4.3"
+pytest-asyncio = "^0.25.3"
 
 [tool.poetry.dev-dependencies]
 black = "^23.3.0"
 isort = "^5.12.0"
 flake8 = "^6.0.0"
+
+[tool.pytest.ini_options]
+markers = [
+    "asyncio: mark test as an asyncio test",
+]
