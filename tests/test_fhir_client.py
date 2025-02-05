@@ -14,3 +14,10 @@ def test_get_patient():
     assert patient is not None
     assert "resourceType" in patient
     assert patient["resourceType"] == "Patient"
+
+
+def test_get_invalid_patient():
+    client = FHIRClient()
+    # Test with a non-existent patient ID
+    patient = client.get_patient("nonexistent-123")
+    assert patient is None
