@@ -1,5 +1,6 @@
+from src.config.settings import Settings
 from fhirclient import client
-from config.settings import Settings
+from fhirclient.models import patient
 
 
 class FHIRClient:
@@ -15,8 +16,8 @@ class FHIRClient:
     def get_patient(self, patient_id: str):
         """Fetch a patient resource by ID"""
         try:
-            patient = self.smart.server.get_patient(patient_id)
-            return patient.as_json()
+            search = patient.Patient.read(patient_id, self.smart.server)
+            return search.as_json()
         except Exception as e:
             print(f"Error fetching patient: {e}")
             return None
