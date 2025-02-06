@@ -1,9 +1,11 @@
 import pytest
-from src.fhir.explorer import FHIRResourceExplorer
+from src.tools.fhir_tools.explorer import FHIRExplorer
+
 
 @pytest.fixture
 def explorer():
-    return FHIRResourceExplorer()
+    return FHIRExplorer()
+
 
 @pytest.mark.asyncio
 async def test_explore_patient_structure(explorer):
@@ -11,6 +13,7 @@ async def test_explore_patient_structure(explorer):
     assert result is not None
     assert "structure" in result
     assert "resourceType" in result["structure"]
+
 
 @pytest.mark.asyncio
 async def test_get_patient_relationships(explorer):
