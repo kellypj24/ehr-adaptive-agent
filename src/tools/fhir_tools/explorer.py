@@ -4,7 +4,7 @@ from .client import FHIRClient
 from fhirclient.models import patient
 
 
-class FHIRResourceExplorer:
+class FHIRExplorer:
     def __init__(self):
         self.client = FHIRClient()
         self.resource_types = [
