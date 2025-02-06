@@ -1,5 +1,5 @@
 import pytest
-from src.fhir.client import FHIRClient
+from src.tools.fhir_tools.client import FHIRClient
 
 
 def test_fhir_client_initialization():
