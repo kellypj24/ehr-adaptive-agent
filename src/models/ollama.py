@@ -46,7 +46,7 @@ class OllamaClient:
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
-    ) -> Any:
+    ) -> ModelResponse:
         """Generate text using the Ollama model"""
         payload = {
             "model": self.model,
@@ -66,17 +66,14 @@ class OllamaClient:
             first_response = response.content.decode().split("\n")[0]
             data = json.loads(first_response)
 
-            return type(
-                "Response",
-                (),
-                {
-                    "content": data.get("response", ""),
-                    "metadata": {
-                        "model": self.model,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                    },
+            return ModelResponse(
+                content=data.get("response", ""),
+                metadata={
+                    "model": self.model,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
                 },
+                raw_response=data,  # Store the complete response for debugging/analysis
             )
         except httpx.RequestError as e:
             raise ModelServiceError(f"Failed to generate: {str(e)}")

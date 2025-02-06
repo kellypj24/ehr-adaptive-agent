@@ -6,8 +6,9 @@ import pytest_asyncio
 
 @pytest_asyncio.fixture
 async def ollama_client():
-    async with OllamaClient() as client:
-        yield client
+    client = OllamaClient()
+    yield client
+    await client.client.aclose()
 
 
 @pytest.mark.asyncio
