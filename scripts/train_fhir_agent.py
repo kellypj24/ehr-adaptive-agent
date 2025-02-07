@@ -1,6 +1,8 @@
 import asyncio
-import sys
-from typing import Optional
+import json
+import os
+from typing import Optional, Dict, List, TYPE_CHECKING
+from pathlib import Path
 from src.models.ollama import OllamaClient
 from src.tools.fhir_tools.client import FHIRClient
 from src.tools.fhir_tools.explorer import FHIRExplorer
@@ -9,6 +11,91 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from datetime import datetime
+
+
+# First define the class so it can be used in type hints
+class FHIRAgentTrainer:
+    def __init__(self):
+        self.knowledge_base_path = Path("training_history")
+        self.knowledge_base_path.mkdir(exist_ok=True)
+        self.session_history: List[Dict] = []
+        self.load_knowledge_base()
+
+    def load_knowledge_base(self):
+        """Load previous training sessions and successful solutions"""
+        history_file = self.knowledge_base_path / "training_history.json"
+        if history_file.exists():
+            with open(history_file, "r") as f:
+                self.knowledge_base = json.load(f)
+        else:
+            self.knowledge_base = {
+                "successful_patterns": {},
+                "error_solutions": {},
+                "task_history": [],
+            }
+
+    def save_training_session(self):
+        """Save the current session's learnings"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Save session history
+        session_file = self.knowledge_base_path / f"session_{timestamp}.json"
+        with open(session_file, "w") as f:
+            json.dump(self.session_history, f, indent=2)
+
+        # Update and save knowledge base
+        self.knowledge_base["task_history"].extend(self.session_history)
+        with open(self.knowledge_base_path / "training_history.json", "w") as f:
+            json.dump(self.knowledge_base, f, indent=2)
+
+    def get_enhanced_prompt(self, task: str, error: Optional[str] = None) -> str:
+        """Build prompt using knowledge base and previous solutions"""
+        similar_tasks = self.find_similar_tasks(task)
+
+        prompt_parts = [task]
+
+        if similar_tasks:
+            prompt_parts.append("\nPrevious successful approaches:")
+            for t in similar_tasks:
+                prompt_parts.append(f"- {t['solution_pattern']}")
+
+        if error and error in self.knowledge_base["error_solutions"]:
+            prompt_parts.append(f"\nPrevious solution for {error}:")
+            prompt_parts.append(self.knowledge_base["error_solutions"][error])
+
+        return "\n".join(prompt_parts)
+
+    def find_similar_tasks(self, task: str) -> List[Dict]:
+        """Find similar tasks from history (simplified - could use embeddings)"""
+        return [
+            t
+            for t in self.knowledge_base["task_history"]
+            if t["success"]
+            and any(word in task.lower() for word in t["task"].lower().split())
+        ]
+
+    def record_attempt(
+        self, task: str, code: str, success: bool, error: Optional[str] = None
+    ):
+        """Record the attempt and its outcome"""
+        attempt = {
+            "timestamp": datetime.now().isoformat(),
+            "task": task,
+            "code": code,
+            "success": success,
+            "error": error,
+        }
+        self.session_history.append(attempt)
+
+        if success:
+            # Store successful pattern
+            self.knowledge_base["successful_patterns"][task] = code
+        elif error:
+            # Store error solution if this error was solved
+            error_type = error.split(":")[0]
+            if error_type not in self.knowledge_base["error_solutions"]:
+                self.knowledge_base["error_solutions"][error_type] = code
+
 
 console = Console()
 
@@ -20,17 +107,12 @@ def clean_generated_code(content: str) -> str:
     in_code_block = False
 
     for line in lines:
-        # Skip markdown code block markers and explanatory text
         if line.strip().startswith("```"):
             in_code_block = not in_code_block
             continue
-        # Only include lines that are inside a code block or look like Python code
         if in_code_block or (
             line.strip()
-            and not line.startswith("Here")
-            and not line.startswith("I ")
-            and not line.startswith("Note")
-            and not line.startswith("This")
+            and not line.startswith(("Here", "I ", "Note", "This", "The", "To"))
         ):
             code_lines.append(line)
 
@@ -40,21 +122,20 @@ def clean_generated_code(content: str) -> str:
 async def execute_generated_code(
     code: str, context: dict
 ) -> tuple[bool, Optional[str]]:
-    """
-    Execute the generated code with proper context and capture any errors.
-    Returns (success, error_message)
-    """
+    """Execute the generated code with proper context and capture any errors."""
     try:
-        # Clean the code before execution
         cleaned_code = clean_generated_code(code)
 
-        # Create a new namespace with our tools
-        namespace = {"FHIRClient": FHIRClient, "FHIRExplorer": FHIRExplorer, **context}
+        namespace = {
+            "FHIRClient": FHIRClient,
+            "FHIRExplorer": FHIRExplorer,
+            "client": context["client"],
+            "explorer": context["explorer"],
+            "print": console.print,
+        }
 
-        # Execute the code in this namespace
         exec(cleaned_code, namespace)
 
-        # Try to execute the main function if it exists
         if "main" in namespace:
             namespace["main"]()
 
@@ -68,9 +149,12 @@ async def generate_and_test_code(
     prompt: str,
     system_prompt: str,
     context: dict,
-    max_attempts: int = 3,
+    max_attempts: int = 5,
+    trainer: Optional[FHIRAgentTrainer] = None,
 ) -> None:
     """Generate code and attempt to execute it, learning from failures"""
+
+    last_error = None
 
     with Progress(
         SpinnerColumn(),
@@ -84,15 +168,7 @@ async def generate_and_test_code(
                 f"\n[bold cyan]Attempt {attempt + 1}/{max_attempts}[/bold cyan]"
             )
 
-            # If this isn't the first attempt, add error context
-            if attempt > 0:
-                prompt = f"""Previous attempt failed with error: {last_error}
-
-Please fix the code and try again. Here's the original task:
-{prompt}"""
-
             try:
-                # Show progress for code generation
                 task_id = progress.add_task("Generating code...", total=None)
                 response = await client.generate(
                     prompt=prompt,
@@ -102,7 +178,6 @@ Please fix the code and try again. Here's the original task:
                 )
                 progress.remove_task(task_id)
 
-                # Display the generated code
                 code_syntax = Syntax(
                     response.content,
                     "python",
@@ -118,10 +193,14 @@ Please fix the code and try again. Here's the original task:
                     )
                 )
 
-                # Show progress for code execution
                 task_id = progress.add_task("Executing code...", total=None)
                 success, error = await execute_generated_code(response.content, context)
                 progress.remove_task(task_id)
+
+                if trainer:
+                    trainer.record_attempt(
+                        task=prompt, code=response.content, success=success, error=error
+                    )
 
                 if success:
                     console.print(
@@ -139,10 +218,11 @@ Please fix the code and try again. Here's the original task:
             if attempt < max_attempts - 1:
                 console.print("\n[yellow]Retrying with error context...[/yellow]")
             else:
-                console.print("\n[red]Max attempts reached. Moving to next task.[/red]")
+                console.print("\n[red]Max attempts reached. Task failed.[/red]")
 
 
 async def main():
+    trainer = FHIRAgentTrainer()
     console.print("[bold green]Starting FHIR Agent Training Session[/bold green]")
     console.print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
@@ -153,71 +233,49 @@ async def main():
         console=console,
         transient=True,
     ) as progress:
-        # Show progress for initialization
         task_id = progress.add_task("Initializing FHIR tools...", total=None)
-
-        # Initialize our tools
         fhir_client = FHIRClient()
         fhir_explorer = FHIRExplorer()
-
         progress.remove_task(task_id)
 
-    # Context for code execution
     context = {"client": fhir_client, "explorer": fhir_explorer}
 
     system_prompt = """You are a Python expert specializing in healthcare data integration.
-Your task is to write executable Python code that uses the provided FHIRClient and FHIRExplorer classes.
+Your task is to write executable Python code that uses the provided client instance.
 
-IMPORTANT RESPONSE FORMAT:
-- Only output valid Python code
-- Do not include markdown code blocks (```)
-- Do not include explanations or comments outside the code
-- Include docstrings and inline comments within the code
-- Always include a main() function that demonstrates the functionality
+IMPORTANT:
+1. The client instance is already provided as 'client'
+2. Return ONLY valid Python code
+3. Do not create new client instances
+4. Include proper error handling
+5. Use the rich library for output formatting
 
-Available tools in context:
-1. client: FHIRClient instance with methods:
-   - get_patient(patient_id: str) -> dict
-
-2. explorer: FHIRExplorer instance with methods:
-   - explore_resource_structure(resource_type: str) -> dict
-   - get_resource_relationships(resource_id: str, resource_type: str) -> dict
-
-Example response format:
+Example of valid code structure:
 def main():
-    '''Main function to demonstrate functionality'''
-    # Your code here
-    pass
+    '''Function to demonstrate FHIR client usage'''
+    try:
+        patient = client.get_patient('example')
+        print(f"Patient data: {patient}")
+    except Exception as e:
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
     main()"""
 
-    test_prompts = [
-        "Write a program that retrieves a patient with ID 'example' using the provided client instance and prints their name and birth date. Handle any potential errors.",
-        "Create a program that uses the provided explorer instance to show all available fields in a Patient resource. Format the output using rich library for better readability.",
-        "Write a program that uses the provided explorer instance to get a patient's related resources and display them in a structured way using rich library.",
-    ]
+    prompt = "Write a program that retrieves a patient with ID 'example' using the provided client instance and prints their name and birth date. Handle any potential errors."
 
-    async with OllamaClient() as client:
-        is_healthy = await client.health_check()
-        console.print(f"Health check: {'✅' if is_healthy else '❌'}")
-
-        if not is_healthy:
-            console.print("[bold red]Model is not available. Exiting.[/bold red]")
-            sys.exit(1)
-
-        for i, prompt in enumerate(test_prompts, 1):
-            console.print(f"\n[bold blue]Task #{i}[/bold blue]")
-            console.print(Panel(prompt, title="Prompt", border_style="blue"))
-
+    try:
+        async with OllamaClient() as ollama_client:
             await generate_and_test_code(
-                client=client,
+                client=ollama_client,
                 prompt=prompt,
                 system_prompt=system_prompt,
                 context=context,
+                max_attempts=5,
+                trainer=trainer,
             )
-
-            console.print("\n" + "=" * 80 + "\n")
+    finally:
+        trainer.save_training_session()
 
 
 if __name__ == "__main__":
