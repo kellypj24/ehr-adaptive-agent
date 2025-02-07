@@ -180,3 +180,8 @@ cython_debug/
 # macOS system files
 .DS_Store
 **/.DS_Store
+
+# Training history files
+training_history/
+training_history.json
+session_*.json
