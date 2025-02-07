@@ -62,18 +62,28 @@ class OllamaClient:
             )
             response.raise_for_status()
 
-            # Handle streaming response - get first complete response
-            first_response = response.content.decode().split("\n")[0]
-            data = json.loads(first_response)
+            # Handle streaming response - accumulate all chunks
+            full_response = ""
+            last_data = None
+
+            for line in response.content.decode().split("\n"):
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    full_response += data.get("response", "")
+                    last_data = data
+                except json.JSONDecodeError:
+                    continue
 
             return ModelResponse(
-                content=data.get("response", ""),
+                content=full_response,
                 metadata={
                     "model": self.model,
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                 },
-                raw_response=data,  # Store the complete response for debugging/analysis
+                raw_response=last_data or {},  # Store the last chunk for metadata
             )
         except httpx.RequestError as e:
             raise ModelServiceError(f"Failed to generate: {str(e)}")
