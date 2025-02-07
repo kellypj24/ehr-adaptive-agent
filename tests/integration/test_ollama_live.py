@@ -1,7 +1,10 @@
 import asyncio
 from src.models.ollama import OllamaClient
+import pytest
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_ollama():
     async with OllamaClient() as client:
         # Test health check
