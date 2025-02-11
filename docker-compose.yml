@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: ehr_agent_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ehr_agent
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ehr_agent_data:/var/lib/postgresql/data
+      - ./docker/sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ehr_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ehr_agent_data:
+    name: ehr_agent_data
