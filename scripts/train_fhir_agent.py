@@ -231,14 +231,42 @@ def clean_generated_code(content: str) -> str:
     in_code_block = False
 
     for line in lines:
-        if line.strip().startswith("```"):
-            in_code_block = not in_code_block
-            continue
-        if in_code_block or (
-            line.strip()
-            and not line.startswith(("Here", "I ", "Note", "This", "The", "To"))
+        # Skip explanatory text and markdown
+        if any(
+            line.lower().startswith(text)
+            for text in [
+                "sure,",
+                "here",
+                "this",
+                "the",
+                "note:",
+                "example",
+                "i ",
+                "let's",
+                "now",
+                "first,",
+                "next,",
+                "finally,",
+                "```python",
+                "```",
+            ]
         ):
-            code_lines.append(line)
+            continue
+
+        # Skip empty lines at the start
+        if not code_lines and not line.strip():
+            continue
+
+        # Skip lines that look like explanations
+        if line.strip() and not line.strip().startswith("#"):
+            if line[0].isupper() and "." in line:
+                continue
+
+        code_lines.append(line)
+
+    # Clean up any trailing whitespace
+    while code_lines and not code_lines[-1].strip():
+        code_lines.pop()
 
     return "\n".join(code_lines)
 
@@ -390,29 +418,18 @@ async def main():
 
         context = {"client": fhir_client, "explorer": fhir_explorer}
 
-        system_prompt = """You are a Python expert specializing in healthcare data integration.
-Your task is to write clean, efficient Python code using the provided FHIR client.
+        system_prompt = """You are a Python code generator. You MUST output ONLY valid Python code - no explanations, no markdown, no text.
 
 Available instances:
 - client: FHIRClient instance for FHIR API interactions
 - explorer: FHIRExplorer instance for metadata exploration
 - console: Rich console instance for formatted output
 
-Code requirements:
-1. Write focused, minimal code without unnecessary comments
-2. Use only the provided instances - do not create new clients
-3. Include proper error handling with specific exception types
-4. Use rich.console for all output formatting
-5. Structure code with a main() function
-6. Follow Python best practices for readability
-
-Example structure:
+Example output format:
 def main():
     try:
         result = client.get_resource('Patient', 'example')
         console.print(f"[green]Success:[/green] {result}")
-    except ValueError as e:
-        console.print(f"[red]Invalid input:[/red] {e}")
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
 
