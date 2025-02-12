@@ -12,8 +12,10 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ehr_agent_data:/var/lib/postgresql/data
+      # Any .sql files in docker/sql/ will be executed in alphabetical order
+      # Our init_training_db.sql will be executed on first database creation
       - ./docker/sql:/docker-entrypoint-initdb.d
+      - ehr_agent_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ehr_agent"]
       interval: 10s
